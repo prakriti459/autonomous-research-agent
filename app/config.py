@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-base"
     max_question_length: int = Field(default=2000, ge=1, le=20000)
     conversation_history_limit: int = Field(default=10, ge=0, le=100)
+    history_token_budget: int = Field(default=500, ge=0, le=3000)
+    max_upload_bytes: int = Field(default=20_000_000, ge=1024, le=100_000_000)
     upload_directory: str = "./data/uploads"
 
 

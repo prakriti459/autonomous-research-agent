@@ -1,210 +1,79 @@
-from pathlib import Path
-from typing import Dict, List
 import json
+from pathlib import Path
+from typing import Any
 
-try:
-    from docling.document_converter import DocumentConverter
-    from docling.chunking import HybridChunker
-
-    from transformers import AutoTokenizer
-
-except ImportError as e:
-    raise ImportError(
-        f"Import failed: {e}"
-    )
+from app.config import get_settings
 
 
-# ------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------
+def _chunk_page(chunk: Any) -> int | None:
+    pages = []
+    metadata = getattr(chunk, "meta", None)
+    for item in getattr(metadata, "doc_items", []):
+        for provenance in getattr(item, "prov", []):
+            page_number = getattr(provenance, "page_no", None)
+            if isinstance(page_number, int) and page_number > 0:
+                pages.append(page_number)
+    return min(pages) if pages else None
 
 
-
-
-# ------------------------------------------------------
-# INGESTION FUNCTION
-# ------------------------------------------------------
-
-def ingest_pdf(pdf_path: str) -> List[Dict]:
-
+def parse_pdf(pdf_path: str | Path) -> list[dict[str, Any]]:
     pdf_file = Path(pdf_path)
-
-    # --------------------------------------------------
-    # CHECK PDF EXISTS
-    # --------------------------------------------------
-
-    if not pdf_file.exists():
-
-        raise FileNotFoundError(
-            f"PDF not found: {pdf_path}"
-        )
-
-    print(f"\n[INFO] Loading PDF: {pdf_path}")
-
-    # --------------------------------------------------
-    # STEP 1: Parse PDF
-    # --------------------------------------------------
+    if not pdf_file.is_file():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     try:
-
-        converter = DocumentConverter()
-
-        result = converter.convert(
-            str(pdf_file)
-        )
-
-        document = result.document
-
-        print(
-            "[SUCCESS] PDF parsed successfully!"
-        )
-
-    except Exception as e:
-
+        from docling.chunking import HybridChunker
+        from docling.document_converter import DocumentConverter
+        from transformers import AutoTokenizer
+    except ImportError as error:
         raise RuntimeError(
-            f"PDF parsing failed:\n{e}"
-        )
+            "PDF ingestion dependencies are unavailable; install requirements.txt"
+        ) from error
 
-    # --------------------------------------------------
-    # STEP 2: Load Tokenizer
-    # --------------------------------------------------
+    settings = get_settings()
+    try:
+        document = DocumentConverter().convert(str(pdf_file)).document
+    except Exception as error:
+        raise RuntimeError(f"PDF parsing failed: {error}") from error
 
     try:
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
-
-        print(
-            "[SUCCESS] Tokenizer loaded!"
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"Tokenizer loading failed:\n{e}"
-        )
-
-    # --------------------------------------------------
-    # STEP 3: Hybrid Semantic Chunking
-    # --------------------------------------------------
-
-    try:
-
+        tokenizer = AutoTokenizer.from_pretrained(settings.embedding_model)
         chunker = HybridChunker(
             tokenizer=tokenizer,
             max_tokens=512,
             overlap_tokens=64,
         )
+        chunks = list(chunker.chunk(document))
+    except Exception as error:
+        raise RuntimeError(f"PDF chunking failed: {error}") from error
 
-        chunks = list(
-            chunker.chunk(document)
+    processed = []
+    for index, chunk in enumerate(chunks):
+        text = chunk.text.strip()
+        if not text:
+            continue
+        processed.append(
+            {
+                "chunk_id": f"chunk_{index}",
+                "text": text,
+                "page": _chunk_page(chunk),
+            }
         )
-
-        print(
-            f"[SUCCESS] Generated "
-            f"{len(chunks)} chunks!"
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"Chunking failed:\n{e}"
-        )
-
-    # --------------------------------------------------
-    # STEP 4: Clean Chunks
-    # --------------------------------------------------
-
-    processed_chunks = []
-
-    for idx, chunk in enumerate(chunks):
-
-        try:
-
-            chunk_text = chunk.text.strip()
-
-            if not chunk_text:
-                continue
-
-            processed_chunks.append(
-                {
-                    "chunk_id": f"chunk_{idx}",
-                    "text": chunk_text,
-                }
-            )
-
-        except Exception as e:
-
-            print(
-                f"[WARNING] Failed chunk "
-                f"{idx}: {e}"
-            )
-
-    print(
-        f"[SUCCESS] Final usable chunks: "
-        f"{len(processed_chunks)}"
-    )
-
-    # --------------------------------------------------
-    # STEP 5: Save Chunks to JSON
-    # --------------------------------------------------
-
-    try:
-
-        with open(
-            "chunks.json",
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            json.dump(
-                processed_chunks,
-                f,
-                indent=4,
-                ensure_ascii=False,
-            )
-
-        print(
-            "\n[SUCCESS] Chunks saved "
-            "to chunks.json"
-        )
-
-    except Exception as e:
-
-        print(
-            f"\n[WARNING] Failed to "
-            f"save JSON:\n{e}"
-        )
-
-    return processed_chunks
+    if not processed:
+        raise ValueError("The PDF did not contain any usable text")
+    return processed
 
 
-# ------------------------------------------------------
-# MAIN
-# ------------------------------------------------------
+def ingest_pdf(pdf_path: str) -> list[dict[str, Any]]:
+    chunks = parse_pdf(pdf_path)
+    with Path("chunks.json").open("w", encoding="utf-8") as file:
+        json.dump(chunks, file, indent=2, ensure_ascii=False)
+    return chunks
+
 
 if __name__ == "__main__":
-
-    pdf_path = input(
-    "\nEnter PDF path: "
-)
+    pdf_path = input("Enter PDF path: ")
     chunks = ingest_pdf(pdf_path)
-
-    print(
-        "\n========== SAMPLE CHUNKS ==========\n"
-    )
-
     for chunk in chunks[:3]:
-
-        print(chunk["chunk_id"])
-
-        print("\n")
-
-        print(
-            chunk["text"][:1000]
-        )
-
-        print(
-            "\n" + "=" * 80 + "\n"
-        )
+        print(f"{chunk['chunk_id']} (page {chunk['page']})")
+        print(chunk["text"][:1000])

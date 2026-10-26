@@ -32,4 +32,4 @@ async def load_history(
         for row in rows
         if row.role in {"user", "assistant"}
     ]
-    return trim_history(messages, max_tokens=500)
+    return trim_history(messages, max_tokens=settings.history_token_budget)
