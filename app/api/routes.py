@@ -29,6 +29,7 @@ from app.api.schemas import (
     IngestResponse,
 )
 from app.ingestion.pdf import parse_pdf
+from app.security.input import SuspiciousInputError, validate_user_question
 from app.tools.retrieval import get_retrieval_pipeline
 
 
@@ -133,6 +134,11 @@ async def ask(
     request: AskRequest,
     db: AsyncSession = Depends(get_db),
 ) -> AskResponse:
+    try:
+        validate_user_question(request.question)
+    except SuspiciousInputError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
     session_id = await get_or_create_session(
         db,
         str(request.session_id) if request.session_id is not None else None,
