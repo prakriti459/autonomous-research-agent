@@ -14,6 +14,19 @@ async def create_session(db: AsyncSession) -> str:
     return session.id
 
 
+async def get_or_create_session(
+    db: AsyncSession, session_id: str | None = None
+) -> str:
+    if session_id is not None:
+        existing = await db.get(SessionRecord, session_id)
+        if existing is not None:
+            return existing.id
+    session = SessionRecord(id=session_id or str(uuid4()))
+    db.add(session)
+    await db.flush()
+    return session.id
+
+
 async def get_recent_messages(
     db: AsyncSession, session_id: str, limit: int
 ) -> list[Message]:
