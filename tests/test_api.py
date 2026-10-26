@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import routes
+from app.api import audit
 from app.db.database import get_db
 from app.db.models import Base
 from app.db.repositories import lookup_paper_metadata
@@ -30,6 +31,9 @@ def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def close_database() -> None:
         await engine.dispose()
 
+    async def record_request_for_test(**details: object) -> None:
+        await audit.record_request(session_factory=session_factory, **details)
+
     async def database_override() -> Iterator[Any]:
         async with session_factory() as session:
             yield session
@@ -40,6 +44,7 @@ def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr("app.api.schemas.get_settings", lambda: settings)
     monkeypatch.setattr("app.main.initialize_database", initialize_database)
     monkeypatch.setattr("app.main.close_database", close_database)
+    monkeypatch.setattr("app.main.record_request", record_request_for_test)
     app.dependency_overrides[get_db] = database_override
 
     with TestClient(app) as client:

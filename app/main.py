@@ -1,10 +1,13 @@
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from time import perf_counter
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.middleware.base import RequestResponseEndpoint
 
+from app.api.audit import record_request
 from app.api.routes import router
 from app.config import get_settings
 from app.db.database import close_database, create_database_tables
@@ -39,6 +42,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+
+
+@app.middleware("http")
+async def audit_requests(
+    request: Request, call_next: RequestResponseEndpoint
+) -> Response:
+    started_at = perf_counter()
+    error = None
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        if status_code >= 400:
+            error = f"HTTP {status_code}"
+        return response
+    except Exception as exception:
+        error = type(exception).__name__
+        raise
+    finally:
+        await record_request(
+            session_id=getattr(request.state, "session_id", None),
+            tool_used=getattr(request.state, "tool_used", None),
+            latency_ms=(perf_counter() - started_at) * 1000,
+            grounded=getattr(request.state, "grounded", None),
+            error=error,
+            status_code=status_code,
+            method=request.method,
+            path=request.url.path,
+        )
 
 
 @app.get("/health", tags=["operations"])

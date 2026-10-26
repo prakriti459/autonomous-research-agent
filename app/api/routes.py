@@ -5,7 +5,16 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from ollama import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -132,6 +141,7 @@ async def ingest(
 )
 async def ask(
     request: AskRequest,
+    api_request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> AskResponse:
     try:
@@ -143,6 +153,7 @@ async def ask(
         db,
         str(request.session_id) if request.session_id is not None else None,
     )
+    api_request.state.session_id = session_id
     history = await load_history(db, session_id)
     await save_message(
         db,
@@ -169,6 +180,8 @@ async def ask(
             detail="Research model failed to produce a valid grounded answer",
         ) from error
 
+    api_request.state.tool_used = result.tool_used
+    api_request.state.grounded = result.answer.grounded
     await save_message(
         db,
         session_id=session_id,
@@ -196,11 +209,13 @@ async def ask(
 )
 async def history(
     session_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> HistoryResponse:
     session = await db.get(SessionRecord, str(session_id))
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    request.state.session_id = str(session_id)
     messages = await get_recent_messages(
         db,
         str(session_id),

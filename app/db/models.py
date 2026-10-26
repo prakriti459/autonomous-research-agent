@@ -62,6 +62,7 @@ class RequestLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
     grounded: Mapped[bool | None] = mapped_column(Boolean)
     error: Mapped[str | None] = mapped_column(Text)
+    status_code: Mapped[int] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
