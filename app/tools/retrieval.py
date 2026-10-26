@@ -1,323 +1,160 @@
-from typing import Dict, List
-import json
+from functools import lru_cache
+from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
-try:
-    from sentence_transformers import (
-        SentenceTransformer,
-        CrossEncoder,
-    )
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    FilterSelector,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
-    from qdrant_client import QdrantClient
+from app.config import get_settings
 
-    from qdrant_client.models import (
-        VectorParams,
-        Distance,
-        PointStruct,
-    )
-
-except ImportError as e:
-
-    raise ImportError(
-        f"Import failed:\n{e}"
-    )
-
-
-# ------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------
 
 COLLECTION_NAME = "research_papers"
+VECTOR_SIZE = 384
 
-QDRANT_PATH = "./qdrant_db"
-
-
-# ------------------------------------------------------
-# RETRIEVAL PIPELINE
-# ------------------------------------------------------
 
 class RetrievalPipeline:
-
-    def __init__(self):
-
+    def __init__(
+        self,
+        *,
+        embedding_model: Any | None = None,
+        reranker: Any | None = None,
+        qdrant: QdrantClient | Any | None = None,
+    ) -> None:
+        settings = get_settings()
         self.collection_name = COLLECTION_NAME
-
-        print("\n[INFO] Loading embedding model...")
-
-        self.embedding_model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
+        self.embedding_model = embedding_model or SentenceTransformer(
+            settings.embedding_model
         )
+        self.reranker = reranker or CrossEncoder(settings.reranker_model)
+        self.qdrant = qdrant or self._create_qdrant_client(settings)
+        self.create_collection()
 
-        print("[SUCCESS] Embedding model loaded!")
+    @staticmethod
+    def _create_qdrant_client(settings: Any) -> QdrantClient:
+        if settings.qdrant_url:
+            return QdrantClient(url=settings.qdrant_url)
+        return QdrantClient(path=settings.qdrant_path)
 
-        print("\n[INFO] Loading reranker model...")
-
-        self.reranker = CrossEncoder(
-            "BAAI/bge-reranker-base"
-        )
-
-        print("[SUCCESS] Reranker loaded!")
-
-        print("\n[INFO] Initializing Qdrant...")
-
-        self.qdrant = QdrantClient(
-            path=QDRANT_PATH
-        )
-
-        print("[SUCCESS] Qdrant initialized!")
-
-        self.vector_size = 384
-
-    # --------------------------------------------------
-    # CREATE COLLECTION
-    # --------------------------------------------------
-
-    def create_collection(self):
-
-        existing = [
-            c.name
-            for c in self.qdrant.get_collections().collections
-        ]
-
-        if self.collection_name in existing:
-
-            print(
-                "[INFO] Collection already exists."
-            )
-
+    def create_collection(self) -> None:
+        if self.qdrant.collection_exists(self.collection_name):
             return
-
         self.qdrant.create_collection(
             collection_name=self.collection_name,
-            vectors_config=VectorParams(
-                size=self.vector_size,
-                distance=Distance.COSINE,
-            ),
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
-
-        print("[SUCCESS] Collection created!")
-
-    # --------------------------------------------------
-    # INDEX DOCUMENTS
-    # --------------------------------------------------
 
     def index_documents(
         self,
-        chunks: List[Dict]
-    ):
-
-        print("\n[INFO] Creating embeddings...")
-
-        texts = [
-            chunk["text"]
-            for chunk in chunks
-        ]
+        chunks: list[dict[str, Any]],
+        *,
+        paper_id: str,
+        paper_title: str,
+    ) -> int:
+        if not chunks:
+            raise ValueError("Cannot index a paper without usable text chunks")
 
         embeddings = self.embedding_model.encode(
-            texts,
-            show_progress_bar=True,
+            [chunk["text"] for chunk in chunks],
+            show_progress_bar=False,
         )
-
         points = []
-
-        for idx, (chunk, vector) in enumerate(
-            zip(chunks, embeddings)
-        ):
-
+        for chunk, vector in zip(chunks, embeddings, strict=True):
+            payload: dict[str, Any] = {
+                "paper_id": paper_id,
+                "paper": paper_title,
+                "chunk_id": chunk["chunk_id"],
+                "text": chunk["text"],
+            }
+            if chunk.get("page") is not None:
+                payload["page"] = chunk["page"]
+            point_id = str(uuid5(NAMESPACE_URL, f"{paper_id}:{chunk['chunk_id']}"))
             points.append(
                 PointStruct(
-                    id=idx,
+                    id=point_id,
                     vector=vector.tolist(),
-                    payload={
-                        "chunk_id": chunk["chunk_id"],
-                        "text": chunk["text"],
-                    },
+                    payload=payload,
                 )
             )
-
-        print(
-            "\n[INFO] Uploading vectors to Qdrant..."
-        )
 
         self.qdrant.upsert(
             collection_name=self.collection_name,
             points=points,
+            wait=True,
+        )
+        return len(points)
+
+    def delete_paper(self, paper_id: str) -> None:
+        if not self.qdrant.collection_exists(self.collection_name):
+            return
+        self.qdrant.delete(
+            collection_name=self.collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="paper_id",
+                            match=MatchValue(value=paper_id),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
         )
 
-        print(
-            "[SUCCESS] Documents indexed!"
-        )
-
-    # --------------------------------------------------
-    # SEARCH
-    # --------------------------------------------------
-
-    def search(
-        self,
-        query: str,
-        top_k: int = 5,
-    ) -> List[Dict]:
-
-        print(f"\n[INFO] Searching for: {query}")
-
-        query_embedding = self.embedding_model.encode(
-            query
-        )
-
-        # ----------------------------------------------
-        # STAGE 1: Dense Retrieval
-        # ----------------------------------------------
-
-        results = self.qdrant.query_points(
+    def search(self, query: str, *, top_k: int = 5, candidate_limit: int = 50) -> list[dict[str, Any]]:
+        if not query.strip():
+            raise ValueError("Search query must not be empty")
+        query_embedding = self.embedding_model.encode(query)
+        candidates = self.qdrant.query_points(
             collection_name=self.collection_name,
             query=query_embedding.tolist(),
-            limit=50,
+            limit=candidate_limit,
+            with_payload=True,
         ).points
-
-        print(
-            f"[SUCCESS] Dense retrieval got "
-            f"{len(results)} candidates."
-        )
-
-        # ----------------------------------------------
-        # STAGE 2: Reranking
-        # ----------------------------------------------
-
-        candidate_texts = [
-            r.payload["text"]
-            for r in results
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.payload
+            and isinstance(candidate.payload.get("paper_id"), str)
+            and isinstance(candidate.payload.get("paper"), str)
+            and isinstance(candidate.payload.get("chunk_id"), str)
+            and isinstance(candidate.payload.get("text"), str)
         ]
+        if not candidates:
+            return []
 
-        rerank_pairs = [
-            [query, text]
-            for text in candidate_texts
-        ]
-
-        scores = self.reranker.predict(
-            rerank_pairs
-        )
-
+        pairs = [[query, candidate.payload["text"]] for candidate in candidates]
+        scores = self.reranker.predict(pairs)
         reranked = sorted(
-            zip(results, scores),
-            key=lambda x: x[1],
+            zip(candidates, scores, strict=True),
+            key=lambda item: float(item[1]),
             reverse=True,
         )
-
-        final_results = []
-
-        for result, score in reranked[:top_k]:
-
-            final_results.append(
+        results = []
+        for candidate, score in reranked[:top_k]:
+            payload = candidate.payload
+            results.append(
                 {
-                    "chunk_id": result.payload["chunk_id"],
-                    "text": result.payload["text"],
+                    "paper_id": payload["paper_id"],
+                    "paper": payload["paper"],
+                    "chunk_id": payload["chunk_id"],
+                    "page": payload.get("page"),
+                    "text": payload["text"],
                     "score": float(score),
                 }
             )
+        return results
 
-        return final_results
 
-
-# ------------------------------------------------------
-# MAIN
-# ------------------------------------------------------
-
-if __name__ == "__main__":
-
-    pipeline = RetrievalPipeline()
-
-    # --------------------------------------------------
-    # LOAD CHUNKS
-    # --------------------------------------------------
-
-    try:
-
-        with open(
-            "chunks.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            chunks = json.load(f)
-
-        print(
-            "\n[SUCCESS] Loaded chunks "
-            "from chunks.json"
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"Failed to load chunks:\n{e}"
-        )
-
-    # --------------------------------------------------
-    # DELETE OLD COLLECTION
-    # --------------------------------------------------
-
-    try:
-
-        pipeline.qdrant.delete_collection(
-            collection_name=pipeline.collection_name
-        )
-
-        print(
-            "\n[INFO] Old collection deleted."
-        )
-
-    except Exception:
-
-        print(
-            "\n[INFO] No old collection found."
-        )
-
-    # --------------------------------------------------
-    # RECREATE COLLECTION
-    # --------------------------------------------------
-
-    pipeline.create_collection()
-
-    # --------------------------------------------------
-    # INDEX NEW DOCUMENTS
-    # --------------------------------------------------
-
-    pipeline.index_documents(chunks)
-
-    print(
-        "\n[SUCCESS] New paper indexed!"
-    )
-
-    # --------------------------------------------------
-    # TEST QUERY
-    # --------------------------------------------------
-
-    query = input(
-        "\nEnter test query: "
-    )
-
-    results = pipeline.search(query)
-
-    print(
-        "\n========== TOP RESULTS ==========\n"
-    )
-
-    for result in results:
-
-        print(
-            f"\n{result['chunk_id']}"
-        )
-
-        print(
-            f"\nScore: {result['score']}"
-        )
-
-        print("\n")
-
-        print(
-            result["text"][:1000]
-        )
-
-        print(
-            "\n" + "=" * 80 + "\n"
-        )
-
-    pipeline.qdrant.close()
+@lru_cache(maxsize=1)
+def get_retrieval_pipeline() -> RetrievalPipeline:
+    return RetrievalPipeline()

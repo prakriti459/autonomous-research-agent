@@ -23,3 +23,10 @@ class ToolChoice(BaseModel):
 
     tool: Literal["search_papers", "lookup_paper_metadata"]
     query: str = Field(min_length=1, max_length=2000)
+
+
+class GroundingResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grounded: bool
+    reasoning: str = Field(min_length=1)
