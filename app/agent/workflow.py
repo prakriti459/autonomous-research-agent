@@ -18,7 +18,7 @@ except ImportError as e:
     )
 
 
-from retrieval import RetrievalPipeline
+from app.tools.retrieval import RetrievalPipeline
 
 
 # ------------------------------------------------------
