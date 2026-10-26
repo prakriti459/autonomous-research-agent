@@ -125,9 +125,14 @@ curl.exe "http://localhost:8000/history/returned-session-uuid" `
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ```
+
+The `requirements-test.txt` set avoids downloading the large PDF parser and
+machine-learning runtimes when running unit tests. Install `requirements-dev.txt`
+when you also need the full PDF ingestion and local retrieval stack. GitHub
+Actions runs this unit-test set on pushes and pull requests.
 
 ## Evaluation
 

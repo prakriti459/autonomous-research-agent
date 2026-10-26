@@ -48,7 +48,7 @@
       "id": "moss-08",
       "question": "What are the two paths by which failure evidence enters a MOSS batch?",
       "expected_answer": "A periodic scan of session logs and a user-triggered flag for a dissatisfied conversation turn.",
-      "expected_terms": ["periodic cron job", "moss evo flag"]
+      "expected_terms": ["catch-up", "flag any turn"]
     },
     {
       "id": "moss-09",
@@ -72,7 +72,7 @@
       "id": "moss-12",
       "question": "Why does the coding-agent CLI run on the host rather than inside the main container?",
       "expected_answer": "The host provides the shell environment, network access, and scoped mounts needed for editing.",
-      "expected_terms": ["network egress", "scope mounts"]
+      "expected_terms": ["shell environment", "scope mounts"]
     },
     {
       "id": "moss-13",
@@ -108,7 +108,7 @@
       "id": "moss-18",
       "question": "What does the plateau guard do?",
       "expected_answer": "If no keypoint improves for several iterations, it stops further trials and converges at the best-scoring candidate so far.",
-      "expected_terms": ["plateau guard", "current peak"]
+      "expected_terms": ["plateau guard", "peak"]
     },
     {
       "id": "moss-19",

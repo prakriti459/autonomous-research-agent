@@ -12,7 +12,6 @@ from qdrant_client.models import (
     PointStruct,
     VectorParams,
 )
-from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from app.config import get_settings
 
@@ -31,10 +30,19 @@ class RetrievalPipeline:
     ) -> None:
         settings = get_settings()
         self.collection_name = COLLECTION_NAME
-        self.embedding_model = embedding_model or SentenceTransformer(
-            settings.embedding_model
+        if embedding_model is None or reranker is None:
+            from sentence_transformers import CrossEncoder, SentenceTransformer
+
+        self.embedding_model = (
+            embedding_model
+            if embedding_model is not None
+            else SentenceTransformer(settings.embedding_model)
         )
-        self.reranker = reranker or CrossEncoder(settings.reranker_model)
+        self.reranker = (
+            reranker
+            if reranker is not None
+            else CrossEncoder(settings.reranker_model)
+        )
         self.qdrant = qdrant or self._create_qdrant_client(settings)
         self.create_collection()
 
