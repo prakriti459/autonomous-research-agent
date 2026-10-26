@@ -10,6 +10,7 @@ chunks.json
 .env.*
 !.env.example
 data/uploads/
+eval/results.json
 
 .DS_Store
 Thumbs.db
