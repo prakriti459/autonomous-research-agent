@@ -1,0 +1,162 @@
+{
+  "paper_title": "MOSS: Self-Evolution through Source-Level Rewriting in Autonomous Agent Systems",
+  "source_file": "data/sample_paper.pdf",
+  "questions": [
+    {
+      "id": "moss-01",
+      "question": "What deployment problem motivates MOSS?",
+      "expected_answer": "Deployed agents are mostly static, so failures seen in real interactions can keep recurring until a human ships an update.",
+      "expected_terms": ["static after deployment", "recurring failures"]
+    },
+    {
+      "id": "moss-02",
+      "question": "What limitation do the authors identify in earlier self-evolving agent systems?",
+      "expected_answer": "They change text-level artifacts such as prompts or skills, but leave the agent harness and its source code unchanged.",
+      "expected_terms": ["text-mutable artifacts", "agent harness"]
+    },
+    {
+      "id": "moss-03",
+      "question": "Why can prompt edits fail to fix a harness-level routing problem?",
+      "expected_answer": "Prompt edits affect what the model thinks or says, while routing and other harness decisions are made by code outside that text layer.",
+      "expected_terms": ["routing", "harness decides"]
+    },
+    {
+      "id": "moss-04",
+      "question": "Why do the authors call source-level adaptation a more general medium?",
+      "expected_answer": "Because source code is Turing-complete and can express changes beyond the narrower set of text-configurable agent behaviors.",
+      "expected_terms": ["Turing-complete", "strict superset"]
+    },
+    {
+      "id": "moss-05",
+      "question": "How does source-level adaptation differ from prompt changes in how reliably changes take effect?",
+      "expected_answer": "Code changes execute deterministically, while prompt-based changes depend on whether the language model follows the edited text.",
+      "expected_terms": ["deterministically", "base-model compliance"]
+    },
+    {
+      "id": "moss-06",
+      "question": "What long-context issue do the authors say source-level changes avoid?",
+      "expected_answer": "Prompt and skill guidance can lose influence as context grows, whereas behavior implemented in code does not need to be reread as guidance each turn.",
+      "expected_terms": ["long-context drift", "text-mutable fixes"]
+    },
+    {
+      "id": "moss-07",
+      "question": "What does MOSS do at a high level?",
+      "expected_answer": "It evolves a production agent by proposing source changes from real failure evidence, testing candidate builds, and promoting a successful candidate with user approval.",
+      "expected_terms": ["source-level", "production agentic substrates"]
+    },
+    {
+      "id": "moss-08",
+      "question": "What are the two paths by which failure evidence enters a MOSS batch?",
+      "expected_answer": "A periodic scan of session logs and a user-triggered flag for a dissatisfied conversation turn.",
+      "expected_terms": ["catch-up", "flag any turn"]
+    },
+    {
+      "id": "moss-09",
+      "question": "What happens to session chunks that score weak or missing?",
+      "expected_answer": "They are added to the open failure batch for that conversation.",
+      "expected_terms": ["weak or missing", "open batch"]
+    },
+    {
+      "id": "moss-10",
+      "question": "What is the default chunk threshold for sealing an open batch?",
+      "expected_answer": "The default threshold is eight chunks.",
+      "expected_terms": ["default 8"]
+    },
+    {
+      "id": "moss-11",
+      "question": "Who performs source edits, and what does MOSS retain control over?",
+      "expected_answer": "A pluggable external coding-agent CLI edits the code; MOSS controls stage ordering, verdicts, loop termination, and promotion timing.",
+      "expected_terms": ["coding-agent CLI", "stage ordering"]
+    },
+    {
+      "id": "moss-12",
+      "question": "Why does the coding-agent CLI run on the host rather than inside the main container?",
+      "expected_answer": "The host provides the shell environment, network access, and scoped mounts needed for editing.",
+      "expected_terms": ["shell environment", "scope mounts"]
+    },
+    {
+      "id": "moss-13",
+      "question": "What five main components make up the MOSS system?",
+      "expected_answer": "The user-facing main container, control CLI, external coding-agent CLI, host daemon, and temporary trial workers.",
+      "expected_terms": ["host-daemon", "trial workers"]
+    },
+    {
+      "id": "moss-14",
+      "question": "Which commands are exposed through the MOSS control CLI?",
+      "expected_answer": "The nine commands are status, batches, batch, start, stop, restart, apply, flag, and catch-up.",
+      "expected_terms": ["nine subcommands", "catch-up"]
+    },
+    {
+      "id": "moss-15",
+      "question": "What are the seven stages in one MOSS evolution iteration?",
+      "expected_answer": "Locate, Plan, Plan-Review, Implement, Code-Review, Task-Evaluate, and Verdict.",
+      "expected_terms": ["Locate", "Task-Evaluate", "Verdict"]
+    },
+    {
+      "id": "moss-16",
+      "question": "What does the Locate stage produce?",
+      "expected_answer": "It diagnoses the baseline traces and batch failures without proposing a fix.",
+      "expected_terms": ["diagnosis without proposing"]
+    },
+    {
+      "id": "moss-17",
+      "question": "How are candidate task results scored in Task-Evaluate?",
+      "expected_answer": "Four to seven keypoints per task are rated on a qualitative scale from strong to missing.",
+      "expected_terms": ["four to seven keypoints", "strong / adequate / weak / missing"]
+    },
+    {
+      "id": "moss-18",
+      "question": "What does the plateau guard do?",
+      "expected_answer": "If no keypoint improves for several iterations, it stops further trials and converges at the best-scoring candidate so far.",
+      "expected_terms": ["plateau guard", "peak"]
+    },
+    {
+      "id": "moss-19",
+      "question": "Why does MOSS use trial workers instead of relying only on code review?",
+      "expected_answer": "Runtime failures such as races, cross-module state problems, and hook-order issues may not be visible from inspecting a diff.",
+      "expected_terms": ["runtime faults", "hook-order-dependent behavior"]
+    },
+    {
+      "id": "moss-20",
+      "question": "How are trial workers isolated from the live agent?",
+      "expected_answer": "They run in short-lived containers without the live user-state mount and with isolated networking.",
+      "expected_terms": ["without this mount", "isolated networking"]
+    },
+    {
+      "id": "moss-21",
+      "question": "Does a CONVERGED verdict automatically deploy the candidate?",
+      "expected_answer": "No. The system marks it ready, but the user must explicitly request the apply operation.",
+      "expected_terms": ["does not automatically promote", "user to invoke"]
+    },
+    {
+      "id": "moss-22",
+      "question": "What happens if the new container fails its health probes?",
+      "expected_answer": "The host daemon rolls back to the last-known-good image and reports the outcome.",
+      "expected_terms": ["rolls back", "last-known-good image"]
+    },
+    {
+      "id": "moss-23",
+      "question": "How does MOSS preserve a user's sessions during a container swap?",
+      "expected_answer": "User state is stored on a host-mounted volume that remains intact when the container image is replaced.",
+      "expected_terms": ["user-state volume", "survives"]
+    },
+    {
+      "id": "moss-24",
+      "question": "What agent and underlying model were used in the case study?",
+      "expected_answer": "The evaluated system was OpenClaw using DeepSeek V3.2.",
+      "expected_terms": ["OpenClaw", "DeepSeek V3.2"]
+    },
+    {
+      "id": "moss-25",
+      "question": "What happened to the four-task mean grader score after one evolution cycle?",
+      "expected_answer": "It increased from 0.2526 before evolution to 0.6100 afterward.",
+      "expected_terms": ["0.2526", "0.6100"]
+    },
+    {
+      "id": "moss-26",
+      "question": "What kinds of tasks were used in the case study?",
+      "expected_answer": "Four English and Chinese compliance-audit tasks covered SLA violations and failures in multi-service restock chains.",
+      "expected_terms": ["SLA compliance audit", "restock-chain check"]
+    }
+  ]
+}

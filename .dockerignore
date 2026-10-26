@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+qdrant_db
+chunks.json
+data/uploads
+tests
+eval/results.json
